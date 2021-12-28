@@ -207,46 +207,56 @@ endif
 container-runtime-login: ## Log in into the Docker repository
 	@echo "+ $@"
 
-.PHONY: container-runtime-build
-container-runtime-build: check-env deepcopy-gen ## Build the container
+.PHONY: container-runtime-build-%
+container-runtime-build-%: ## Build the container
 	@echo "+ $@"
-	$(CONTAINER_RUNTIME_COMMAND) build \
-	--build-arg GO_VERSION=$(GO_VERSION) \
-	--build-arg CTIMEVAR="$(CTIMEVAR)" \
-	-t $(DOCKER_REGISTRY):$(GITCOMMIT) . \
-	--file Dockerfile $(CONTAINER_RUNTIME_EXTRA_ARGS)
+	$(CONTAINER_RUNTIME_COMMAND) buildx build \
+		--output=type=docker --platform linux/$* \
+		--build-arg GO_VERSION=$(GO_VERSION) \
+		--build-arg CTIMEVAR="$(CTIMEVAR)" \
+		--tag $(DOCKER_REGISTRY):$(GITCOMMIT) . \
+		--file Dockerfile $(CONTAINER_RUNTIME_EXTRA_ARGS)
+
+.PHONY: container-runtime-build
+container-runtime-build: check-env deepcopy-gen container-runtime-build-amd64 container-runtime-build-arm64
 
 .PHONY: container-runtime-images
 container-runtime-images: ## List all local containers
 	@echo "+ $@"
 	$(CONTAINER_RUNTIME_COMMAND) images $(CONTAINER_RUNTIME_EXTRA_ARGS)
 
+## Parameter is version
+define container-runtime-push-command
+$(CONTAINER_RUNTIME_COMMAND) buildx build \
+	--output=type=registry --platform linux/amd64,linux/arm64 \
+	--build-arg GO_VERSION=$(GO_VERSION) \
+	--build-arg CTIMEVAR="$(CTIMEVAR)" \
+	--tag $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(1) . \
+	--file Dockerfile $(CONTAINER_RUNTIME_EXTRA_ARGS)
+endef
+
 .PHONY: container-runtime-push
-container-runtime-push: ## Push the container
+container-runtime-push: check-env deepcopy-gen ## Push the container
 	@echo "+ $@"
-	$(CONTAINER_RUNTIME_COMMAND) tag $(DOCKER_REGISTRY):$(GITCOMMIT) $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(BUILD_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
-	$(CONTAINER_RUNTIME_COMMAND) push $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(BUILD_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
+	$(call container-runtime-push-command,$(BUILD_TAG))
 
 .PHONY: container-runtime-snapshot-push
-container-runtime-snapshot-push: container-runtime-build
+container-runtime-snapshot-push: check-env deepcopy-gen
 	@echo "+ $@"
-	$(CONTAINER_RUNTIME_COMMAND) tag $(DOCKER_REGISTRY):$(GITCOMMIT) $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(GITCOMMIT) $(CONTAINER_RUNTIME_EXTRA_ARGS)
-	$(CONTAINER_RUNTIME_COMMAND) push $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(GITCOMMIT) $(CONTAINER_RUNTIME_EXTRA_ARGS)
+	$(call container-runtime-push-command,$(GITCOMMIT))
 
 .PHONY: container-runtime-release-version
-container-runtime-release-version: ## Release image with version tag (in addition to build tag)
+container-runtime-release-version: check-env deepcopy-gen ## Release image with version tag (in addition to build tag)
 	@echo "+ $@"
-	$(CONTAINER_RUNTIME_COMMAND) tag $(DOCKER_REGISTRY):$(GITCOMMIT) $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(VERSION_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
-	$(CONTAINER_RUNTIME_COMMAND) push $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(VERSION_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
+	$(call container-runtime-push-command,$(VERSION_TAG))
 
 .PHONY: container-runtime-release-latest
-container-runtime-release-latest: ## Release image with latest tags (in addition to build tag)
+container-runtime-release-latest: check-env deepcopy-gen ## Release image with latest tags (in addition to build tag)
 	@echo "+ $@"
-	$(CONTAINER_RUNTIME_COMMAND) tag $(DOCKER_REGISTRY):$(GITCOMMIT) $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(LATEST_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
-	$(CONTAINER_RUNTIME_COMMAND) push $(DOCKER_ORGANIZATION)/$(DOCKER_REGISTRY):$(LATEST_TAG) $(CONTAINER_RUNTIME_EXTRA_ARGS)
+	$(call container-runtime-push-command,$(LATEST_TAG))
 
 .PHONY: container-runtime-release
-container-runtime-release: container-runtime-build container-runtime-release-version container-runtime-release-latest ## Release image with version and latest tags (in addition to build tag)
+container-runtime-release: container-runtime-release-version container-runtime-release-latest ## Release image with version and latest tags (in addition to build tag)
 	@echo "+ $@"
 
 # if this session isn't interactive, then we don't want to allocate a
